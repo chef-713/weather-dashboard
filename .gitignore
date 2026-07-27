@@ -1,0 +1,17 @@
+# API keys & local config
+config.js
+
+# OS/Editor junk
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build artifacts (if any future build step)
+dist/
+build/
