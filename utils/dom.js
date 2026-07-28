@@ -241,17 +241,22 @@ export function getConditionText(conditionCode) {
 export function rangeBar(dayMin, dayMax, weekMin, weekMax, units = 'metric') {
   const span = Math.max(weekMax - weekMin, 1); // avoid divide-by-zero on flat weeks
   const leftPct = ((dayMin - weekMin) / span) * 100;
-  const widthPct = ((dayMax - dayMin) / span) * 100;
+  const widthPct = Math.max(((dayMax - dayMin) / span) * 100, 6);
+  const rightPct = leftPct + widthPct;
 
   return el('div', { class: 'range-bar', role: 'img', 'aria-label': `Range ${formatTemp(dayMin, units)} to ${formatTemp(dayMax, units)}` }, [
-    el('span', { class: 'range-bar-low' }, formatTemp(dayMin, units)),
     el('div', { class: 'range-bar-track' }, [
       el('div', {
         class: `range-bar-fill ${tempColorClass((dayMin + dayMax) / 2)}`,
-        style: { left: `${leftPct}%`, width: `${Math.max(widthPct, 6)}%` }
-      })
-    ]),
-    el('span', { class: 'range-bar-high' }, formatTemp(dayMax, units))
+        style: { left: `${leftPct}%`, width: `${widthPct}%` }
+      }),
+      // Low label grows rightward FROM the fill's left edge, high label
+      // grows leftward FROM its right edge — both anchored exactly at the
+      // fill's true edge with no inward clamp needed, since text always
+      // extends inward (toward center) rather than outward past the track.
+      el('span', { class: 'range-bar-low', style: { left: `${leftPct}%` } }, formatTemp(dayMin, units)),
+      el('span', { class: 'range-bar-high', style: { left: `${rightPct}%` } }, formatTemp(dayMax, units))
+    ])
   ]);
 }
 

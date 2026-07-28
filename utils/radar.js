@@ -131,7 +131,7 @@ function showFrame(index) {
     // than an instant swap, given the underlying data only updates every
     // 10 minutes (that cadence itself can't be changed, it's how often
     // RainViewer generates new radar composites).
-    const newLayer = L.tileLayer(frame.url, { opacity: 0, zIndex: 10 }).addTo(map);
+    const newLayer = L.tileLayer(frame.url, { opacity: 0, zIndex: 10, maxNativeZoom: 7 }).addTo(map);
     radarTileLayer = newLayer;
 
     requestAnimationFrame(() => {

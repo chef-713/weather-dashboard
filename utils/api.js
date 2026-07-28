@@ -297,9 +297,12 @@ class WeatherAPI {
         corrected.humidity = obs.humidity;
       }
       if (typeof obs.pressure === 'number') {
-        // ECCC SWOB reports station pressure (stn_pres) in kPa, not hPa.
-        // 1 kPa = 10 hPa — convert before assigning.
-        corrected.pressure = { value: obs.pressure * 10, unit: 'HECTOPASCALS' };
+        // ECCC's own SWOB-XML documentation specifies stn_pres with
+        // uom="hPa" — it's already in hectopascals, no conversion needed.
+        // (A previous version of this code assumed kPa and multiplied by
+        // 10, which was wrong and inflated real readings 10x — e.g. a
+        // normal ~972 hPa reading was displayed as 9721 hPa.)
+        corrected.pressure = { value: obs.pressure, unit: 'HECTOPASCALS' };
       }
       return corrected;
     } catch (err) {

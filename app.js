@@ -120,6 +120,8 @@ function cacheElements() {
   els.hourlyContent = document.getElementById('hourly-content');
   els.dailySection = document.getElementById('daily-section');
   els.dailyContent = document.getElementById('daily-content');
+  els.legendInfoBtn = document.getElementById('legend-info-btn');
+  els.legendPopover = document.getElementById('legend-popover');
 
   // Controls
   els.locationBtn = document.getElementById('location-btn');
@@ -154,6 +156,17 @@ function setupEventListeners() {
 
   // Theme
   els.themeToggle.addEventListener('click', toggleTheme);
+
+  // Temperature-color legend popover (Week tab)
+  els.legendInfoBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleLegendPopover();
+  });
+  document.addEventListener('click', (e) => {
+    if (!els.legendPopover.hidden && !els.legendPopover.contains(e.target) && e.target !== els.legendInfoBtn) {
+      closeLegendPopover();
+    }
+  });
 
   // Refresh
   els.refreshBtn.addEventListener('click', () => {
@@ -232,10 +245,10 @@ async function detectLocation(fetchAfter = true) {
     console.warn('Geolocation failed:', err);
     setLocationLoading(false);
 
-    // Fallback to San Francisco
-    state.location = { lat: 37.7749, lon: -122.4194, name: 'San Francisco, CA' };
+    // Fallback to Thorndale, Ontario, Canada
+    state.location = { lat: 43.1055, lon: -81.1402, name: 'Thorndale, ON' };
     storage.prefs.setLastLocation(state.location);
-    updateLocationDisplay('San Francisco, CA (default)');
+    updateLocationDisplay('Thorndale, ON (default)');
     radar.recenter(state.location.lat, state.location.lon);
     if (fetchAfter) {
       await fetchWeather(state.location.lat, state.location.lon);
@@ -405,6 +418,7 @@ function renderAll() {
   renderCurrent(state.data.current);
   renderHourly(state.data.hourly?.hourlyForecasts || []);
   renderDaily(state.data.daily?.dailyForecasts || []);
+  renderRadarPrecipStrip(state.data.hourly?.hourlyForecasts || []);
 }
 
 function renderSkeletons() {
@@ -544,8 +558,47 @@ function renderHourly(hourlyForecasts) {
   }
 }
 
+/**
+ * "Coming up" precipitation strip shown under the radar controls. RainViewer's
+ * free tier no longer provides forecast/nowcast radar frames (confirmed via
+ * their own docs), so this approximates "what's coming in the next couple
+ * hours" using Open-Meteo's hourly precipitation probability instead — data
+ * already fetched for the Today/Week tabs, no additional request needed.
+ */
+function renderRadarPrecipStrip(hourlyForecasts) {
+  const container = document.getElementById('radar-precip-strip');
+  if (!container) return;
+  if (!hourlyForecasts.length) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const now = new Date();
+  const currentIdx = hourlyForecasts.findIndex(h => {
+    const d = new Date(h.startTime);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() &&
+      d.getDate() === now.getDate() && d.getHours() === now.getHours();
+  });
+  const startIdx = currentIdx === -1 ? 0 : currentIdx;
+  const nextHours = hourlyForecasts.slice(startIdx, startIdx + 5);
+
+  container.innerHTML = '';
+  nextHours.forEach((hour, i) => {
+    const prob = Math.round((hour.precipitationProbability ?? 0) * 100);
+    const label = i === 0 ? 'Now' : dom.formatTime(hour.startTime, { short: true });
+    container.appendChild(
+      dom.el('div', { class: 'precip-chip' }, [
+        dom.el('div', { class: 'precip-chip-time' }, label),
+        dom.el('div', { class: `precip-chip-value ${prob > 30 ? 'active' : ''}` }, `${prob}%`)
+      ])
+    );
+  });
+}
+
 function renderDaily(dailyForecasts) {
   if (!dailyForecasts.length) return;
+
+  buildLegendPopover();
 
   // Week view = today + 6 days ahead, not whatever the API happens to
   // return (currently 7, requested explicitly below in api.js).
@@ -559,6 +612,16 @@ function renderDaily(dailyForecasts) {
   // to the whole forecast window rather than just its own two numbers.
   const weekMin = Math.min(...days.map(d => d.temperatureMin?.degrees ?? 0));
   const weekMax = Math.max(...days.map(d => d.temperatureMax?.degrees ?? 0));
+
+  // States the shared scale explicitly — every row's bar is positioned
+  // against this same range, even though each row's printed numbers are
+  // that day's own low/high, not the week's.
+  list.appendChild(
+    dom.el('div', { class: 'week-scale' }, [
+      dom.el('span', { class: 'week-scale-label' }, 'Week range'),
+      dom.el('span', { class: 'week-scale-value' }, `${dom.formatTemp(weekMin, state.units)} – ${dom.formatTemp(weekMax, state.units)}`)
+    ])
+  );
 
   days.forEach((day, index) => {
     const date = day.date;
@@ -644,6 +707,53 @@ function buildDayDetailPanel(day, panelId) {
  * Single-open accordion: expanding a day collapses whichever other day was
  * open. Prevents the "open all 7, back to information overload" problem.
  */
+/**
+ * Builds the temperature-color legend shown in the Week tab's info popover.
+ * Thresholds here must match dom.js's tempColorClass() boundaries — pulled
+ * from the same six values rather than hardcoded separately, and converted
+ * through formatTemp() so the displayed ranges follow the current unit
+ * setting instead of always showing Celsius.
+ */
+function buildLegendPopover() {
+  const t = (c) => dom.formatTemp(c, state.units);
+  const bands = [
+    { cls: 'temp-frigid', label: `Below ${t(-10)}` },
+    { cls: 'temp-cold', label: `${t(-10)} – ${t(0)}` },
+    { cls: 'temp-cool', label: `${t(0)} – ${t(10)}` },
+    { cls: 'temp-mild', label: `${t(10)} – ${t(20)}` },
+    { cls: 'temp-warm', label: `${t(20)} – ${t(28)}` },
+    { cls: 'temp-hot', label: `Above ${t(28)}` }
+  ];
+
+  els.legendPopover.innerHTML = '';
+  els.legendPopover.append(
+    dom.el('div', { class: 'legend-title' }, 'Daily temperature colors'),
+    dom.el('div', { class: 'legend-swatches' },
+      bands.map(b => dom.el('div', { class: 'legend-row' }, [
+        dom.el('span', { class: `legend-dot ${b.cls}` }),
+        dom.el('span', { class: 'legend-label' }, b.label)
+      ]))
+    ),
+    dom.el('div', { class: 'legend-note' },
+      "Bar position shows how a day compares to the rest of this week; color shows the day's absolute temperature range.")
+  );
+}
+
+function toggleLegendPopover() {
+  if (els.legendPopover.hidden) openLegendPopover();
+  else closeLegendPopover();
+}
+
+function openLegendPopover() {
+  els.legendPopover.hidden = false;
+  els.legendInfoBtn.setAttribute('aria-expanded', 'true');
+}
+
+function closeLegendPopover() {
+  els.legendPopover.hidden = true;
+  els.legendInfoBtn.setAttribute('aria-expanded', 'false');
+}
+
 function toggleDayDetail(row, panel) {
   const isOpen = !panel.hidden;
 
